@@ -1,0 +1,17 @@
+{
+	"folders": [
+		{
+			"path": "."
+		}
+	],
+	"settings": {
+		"files.associations": {
+			"socket.h": "c",
+			"stddef.h": "c",
+			"string.h": "c",
+			"list.h": "c",
+			"common_io.h": "c",
+			"common.h": "c"
+		}
+	}
+}
