@@ -1,4 +1,5 @@
 #ifndef __COMMON_H__
+#define __COMMON_H__
 
 #include <stdlib.h>
 #include <stdio.h>
@@ -9,6 +10,10 @@
 #define NULL ((void *)0)
 #endif // NULL
 
+#ifndef null
+#define null ((void *)0)
+#endif // null
+
 
 #define LOG(...) printf(__VA_ARGS__)
 
@@ -17,8 +22,8 @@
 
 #include <time.h>
 
-time_t now;
-struct tm* c;
+static time_t now;
+static struct tm* c;
 
 #define TIME() time(&now) && (c = localtime(&now)) \
                     && printf("%d-%02d-%02d %02d:%02d:%02d  ", c->tm_year + 1900, c->tm_mon + 1, c->tm_mday, \
@@ -31,6 +36,7 @@ struct tm* c;
 #define E(t_, ...) LOG_PREFIX("E", t_) && printf(__VA_ARGS__) && printf("\n")
 
 #else
+
 #define I(t_, ...) 
 #define D(t_, ...)
 #define E(t_, ...)
@@ -39,5 +45,11 @@ struct tm* c;
 
 #define err_sys(t_, ...) E((t_), __VA_ARGS__); fprintf(stderr, __VA_ARGS__); fprintf(stderr, "\n"); exit(1)
 
+#define SUCC 0
+
+#define FAIL(C) (c) != SUCC
+
+#define max(x, y) (x) > (y) ? (x) : (y)
+#define min(x, y) (x) < (y) ? (x) : (y)
 
 #endif // __COMMON_H__

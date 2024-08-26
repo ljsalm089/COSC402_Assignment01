@@ -17,6 +17,8 @@
 #ifndef _LINUX_LIST_H
 #define _LINUX_LIST_H
 
+# include <stddef.h>
+
 #define NULL ((void *)0)
 
 /**
@@ -27,7 +29,7 @@
 /**
  * Get offset of a member
  */
-#define offsetof(TYPE, MEMBER) ((size_t) &((TYPE *)0)->MEMBER)
+// #define offsetof(TYPE, MEMBER) ((size_t) &((TYPE *)0)->MEMBER)
 
 /**
  * Casts a member of a structure out to the containing structure
@@ -62,6 +64,9 @@
 struct list_head {
 	struct list_head *next, *prev;
 };
+
+typedef struct list_head ListHead;
+typedef ListHead * PListHead;
 
 #define LIST_HEAD_INIT(name) { &(name), &(name) }
 
@@ -234,6 +239,37 @@ static inline void list_splice_init(struct list_head *list,
  */
 #define list_entry(ptr, type, member) \
 	container_of(ptr, type, member)
+
+/**
+ * list_first_entry - get the first element from a list
+ * @ptr:        the list head to take the element from.
+ * @type:       the type of the struct this is embedded in.
+ * @member:     the name of the list_head within the struct.
+ *
+ * Note, that list is expected to be not empty.
+ */
+#define list_first_entry(ptr, type, member) \
+        list_entry((ptr)->next, type, member)
+
+/**
+ * list_first_entry_or_null - get the first element from a list, or null if the list is empty
+ * @ptr:        the list head to take the element from.
+ * @type:       the type of the struct this is embedded in.
+ * @member:     the name of the list_head within the struct.
+ */
+#define list_first_entry_or_null(ptr, type, member) \
+    (list_empty(ptr) ? NULL : list_entry((ptr)->next, type, member));
+
+/**
+ * list_last_entry - get the last element from a list
+ * @ptr:        the list head to take the element from.
+ * @type:       the type of the struct this is embedded in.
+ * @member:     the name of the list_head within the struct.
+ *
+ * Note, that list is expected to be not empty.
+ */
+#define list_last_entry(ptr, type, member) \
+        list_entry((ptr)->prev, type, member)
 
 /**
  * list_for_each	-	iterate over a list
