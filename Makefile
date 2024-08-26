@@ -1,9 +1,22 @@
-ALL_SRC = common.h collections/list.h io/cache.c io/common_io.h \
-		io/buffer.h io/buffer.c net_util.h net_util.c entity/client_info.h entity/client_info.c
+ALL_HEADERS = ./net_util.h \
+			./entity/client_info.h \
+			./io/common_io.h \
+			./io/buffer.h \
+			./common.h \
+			./collections/list.h
 
+objects = ./entity/client_info.o \
+			./io/buffer.o \
+			./io/cache.o \
+			./net_util.o \
+			./detectend.o
 
-server:
-	gcc IMServer.c ${ALL_SRC} -o IMServer
+$(objects): %.o: %.c $(ALL_HEADERS)
+	$(CC) -c $(CFLAGS) $< -o $@
+
+server: IMServer.c $(ALL_HEADERS) $(objects)
+	$(CC) -c $(CFLAGS) $(ALL_HEADERS) IMServer.c
+	$(CC) $(objects) IMServer.o -o IMServer
 
 client:
 	gcc IMClient.c common.h collections/list.h -o IMClient
