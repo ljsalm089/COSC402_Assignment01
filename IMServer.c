@@ -162,6 +162,27 @@ PClientInfo * get_client_list(PServerInfo server_info, int * items)
     return clients;
 }
 
+void user_logout(PServerInfo server_info, PClientInfo info)
+{
+    pthread_mutex_lock(&server_info->lock);
+    PListHead ptr;
+    PClientNode curr;
+
+    list_for_each(ptr, &server_info->clients) {
+        curr = list_entry(ptr, ClientNode, node);
+
+        if (curr->info->socket_id == info->socket_id) {
+            list_del(&curr->node);
+            free(curr);
+            break;
+        }
+    }
+    pthread_mutex_lock(&server_info->lock);
+
+    // TODO create logout msg and send to other users
+
+}
+
 void try_to_handle_msg(PServerInfo server_info, PClientInfo info)
 {
     char *msg = null;
@@ -324,6 +345,7 @@ handle_socket_exception:
             if (SUCC != is_client_connected(info)) {
                 // the connection between client and server is invalid
                 // logout this client and remove it from list
+                user_logout(server_info, info);
             }
         }
         free(data);
