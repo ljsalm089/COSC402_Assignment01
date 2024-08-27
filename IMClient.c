@@ -11,6 +11,7 @@
 
 #include "common.h"
 #include "collections/list.h"
+#include "entity/message.h"
 
 #define TAG "IMClient"
 
@@ -73,17 +74,17 @@ int main(int argc, char **argv)
         goto main_socket_error;
     }
 
-    size_t name_size = strlen(argv[3]);
-    char * name_line = malloc(name_size + 2);
+    size_t login_cmd_size = strlen(argv[3]) + strlen(CMD_LOGIN) + 1;
+    char * name_line = malloc(login_cmd_size);
     if (NULL == name_line) {
         E(TAG, "Unable to allocate memory for registration");
         goto main_socket_error;
     }
 
-    memset(name_line, 0, name_size + 2);
-    sprintf(name_line, "%s\n", argv[3]);
-    ssize_t send_size = send(sock_id, name_line, name_size + 1, 0);
-    if (send_size != name_size + 1) {
+    memset(name_line, 0, login_cmd_size);
+    sprintf(name_line, CMD_LOGIN "%s\n", argv[3]);
+    ssize_t send_size = send(sock_id, name_line, login_cmd_size, 0);
+    if (send_size != login_cmd_size) {
         E(TAG, "Unable to send client name to the server to register");
         goto main_register_error;
     }
@@ -119,15 +120,17 @@ int main(int argc, char **argv)
             break;
         }
 
+        int cmd_len = strlen(CMD_TO_ALL);
         for (int index = 0; index < poll_size; index++) {
             struct pollfd * p_fd = p_poll_ids + index;
             memset(buff, 0, CACHE_SIZE);
 
             if (0 == p_fd->fd && (p_fd->revents & POLLIN)) {
                 // read data from the standard input and handle it
-                read_size = read(p_fd->fd, buff, CACHE_SIZE);
-                D(TAG, "Read data from stdin: %s", buff);
-                write_size = write(sock_id, buff, read_size);
+                read_size = read(p_fd->fd, buff + cmd_len, CACHE_SIZE - cmd_len);
+                strncpy(buff, CMD_TO_ALL, cmd_len);
+                D(TAG, "Read %d bytes data from stdin: %s", read_size, buff);
+                write_size = write(sock_id, buff, strlen(buff));
                 if (-1 == write_size) {
                     E(TAG, "Fail to write data to socket: %s", strerror(errno));
                     is_online = 0;
@@ -141,6 +144,12 @@ int main(int argc, char **argv)
                     // read data from socket error
                     E(TAG, "Fail to read data from socket: %s", strerror(errno));
                     continue;
+                } else if (0 == read_size) {
+                    is_online = 0;
+                    I(TAG, "Abnormal socket status, exiting...");
+                    break;
+                } else {
+                    D(TAG, "Read % bytes data from socket: %d", read_size, p_fd->fd);
                 }
                 // just write the data from buff to standard output
                 write_size = write(1, buff, read_size);

@@ -56,19 +56,17 @@ PClientInfo new_client_info(int socket_id, char *client_name, int type)
 
     memset(data, 0, sizeof(ClientData));
 
-    ret = get_addr_and_port(socket_id, &data->info.peer_info.ip, &data->info.peer_info.port);
-    if (FAIL(ret)) {
-        data->info.peer_info.ip = null;
-        data->info.peer_info.port = -1;
-        E(TAG, "Unable to get address and port from socket");
+    if (C_TYPE_C == type) {
+        ret = get_addr_and_port(socket_id, &data->info.peer_info.ip, &data->info.peer_info.port);
+        if (SUCC != ret) {
+            data->info.peer_info.ip = null;
+            data->info.peer_info.port = -1;
+            E(TAG, "Unable to get address and port from socket");
+        }
     }
 
-    if (null == client_name) {
-        strcpy(data->info.name, "Unknown");
-    } else {
-        int name_length = min(strlen(client_name), CLIENT_NAME_MAXIMUM_SIZE - 1);
-        strncpy(data->info.name, client_name, name_length);
-    }
+    update_client_name(&data->info, client_name);
+
     
     data->info.type = type;
     data->info.socket_id = socket_id;
@@ -86,12 +84,15 @@ PClientInfo new_client_info(int socket_id, char *client_name, int type)
         goto error_with_data;
     }
 
-    if (FAIL(pthread_spin_init(&data->reading_lock, PTHREAD_PROCESS_PRIVATE))) {
-        E(TAG, "Unable to initialise the spin lock for reading in client info");
+    ret = pthread_spin_init(&data->reading_lock, PTHREAD_PROCESS_PRIVATE);
+    if (SUCC != ret) {
+        E(TAG, "Unable to initialise the spin lock for reading in client info: %d", ret);
         goto error_with_data;
     }
-    if (FAIL(pthread_spin_init(&data->writing_lock, PTHREAD_PROCESS_PRIVATE))) {
-        E(TAG, "Unable to initialise the spin lock for writing in client info");
+
+    ret = pthread_spin_init(&data->writing_lock, PTHREAD_PROCESS_PRIVATE);
+    if (SUCC != ret) {
+        E(TAG, "Unable to initialise the spin lock for writing in client info: %d", ret);
         goto error_with_data;
     }
     return &data->info;
@@ -108,6 +109,18 @@ error_with_data:
     return null;
 }
 
+void update_client_name(PClientInfo info, char * name)
+{
+    D(TAG, "Update client name from %s to %s", info->name, name);
+    memset(info->name, 0, CLIENT_NAME_MAXIMUM_SIZE);
+    if (null == name) {
+        strcpy(info->name, "Unknown");
+    } else {
+        int name_length = min(strlen(name), CLIENT_NAME_MAXIMUM_SIZE - 1);
+        strncpy(info->name, name, name_length);
+    }
+}
+
 size_t fetch_from_client(PClientInfo info) 
 {
     CONVERT(data, info);
@@ -116,6 +129,8 @@ size_t fetch_from_client(PClientInfo info)
     if (ioctl(info->socket_id, FIONREAD, &byte_available) < 0) {
         E(TAG, "Detect the readable size error(%d): %s", errno, strerror(errno));
         return -1;
+    } else {
+        D(TAG, "Try to read %d bytes from socket", byte_available);
     }
     
     return read_into_buffer(info->socket_id, data->reading_buffer, byte_available);  
@@ -141,6 +156,7 @@ size_t fetch_msg_from_client(PClientInfo info, char **msg_buff)
     char suffix = '\n';
     size_t cmd_suffix_index = find_in_buffer(data->reading_buffer, 
             data->last_check_cmd_index, check_command_suffix, &suffix);
+    D(TAG, "fetch_msg_from_client, cmd_suffix_index: %d", cmd_suffix_index);
     if (cmd_suffix_index < 0) {
         data->last_check_cmd_index = buffer_size(data->reading_buffer);
         return -1;
@@ -152,8 +168,17 @@ size_t fetch_msg_from_client(PClientInfo info, char **msg_buff)
     }
 }
 
-void send_msg_to_client(PClientInfo info, void *msg, size_t size)
+size_t send_msg_to_client(PClientInfo info, void *msg, size_t size)
 {
+    CONVERT(data, info);
+
+    pthread_spin_lock(&data->writing_lock);
+    size_t ret = write_into_buffer(data->writing_buffer, msg, size);
+    D(TAG, "After write %d bytes data to buffer, current buffer size: %d", 
+            size, buffer_size(data->writing_buffer));
+    pthread_spin_unlock(&data->writing_lock);
+
+    return ret;
 }
 
 size_t flush_messages(PClientInfo info)
@@ -164,6 +189,7 @@ size_t flush_messages(PClientInfo info)
     pthread_spin_lock(&data->writing_lock);
 
     size_t b_size = buffer_size(data->writing_buffer);
+    D(TAG, "Current buffer size for writing: %d", b_size);
     if (b_size > 0) {
         ret = write_from_buffer(info->socket_id, data->writing_buffer, b_size);
     }

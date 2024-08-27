@@ -12,16 +12,19 @@
 # include "collections/list.h"
 # include "io/common_io.h"
 # include "entity/client_info.h"
+# include "entity/message.h"
 # include "net_util.h"
 
 #define TAG "IMServer"
 
-#define UNKNOWN_CLIENT "unknown"
-
+#define __DEBUG__ 1
 #ifdef __DEBUG__
-#define POLL_TIMEOUT 500000
+#define POLL_TIMEOUT 5000
+
+#define PAUSE() sleep(1)
 #else
 #define POLL_TIMEOUT 10
+#define PAUSE() 
 #endif
 
 // link list node to link all the client info
@@ -68,8 +71,8 @@ PServerInfo init_server_info(int socket_id)
     INIT_LIST_HEAD(&server_info->clients);
     server_info->client_count = 0;
 
-    int ret = 0;
-    if (!(ret = pthread_mutex_init(&server_info->lock, NULL))) {
+    int ret = pthread_mutex_init(&server_info->lock, NULL);
+    if (SUCC != ret) {
         E(TAG, "Unable to initialise the spin lock to protect the clients list(%d)", ret);
         goto error_with_server_info;
     }
@@ -96,29 +99,156 @@ void release_server_info(PServerInfo info)
     free(info);
 }
 
-void try_to_handle_msg(PClientInfo info)
+PMsg user_login(PClientInfo info, size_t size, char * msg)
 {
+    int cmd_size = strlen(CMD_LOGIN);
+    
+    PMsg message = null;
+    char * enter = strchr(msg, '\n');
+    if (enter) {
+        *enter = '\0';
+    }
+    update_client_name(info, msg + cmd_size);
+
+    D(TAG, "Client: %s login to the system", info->name);
+
+    // notify other clients that info has logined
+    // message: FROM SYSTEM: {name} is online now
+    int message_len = strlen(MSG_SYS_PREFIX) + strlen(info->name) + strlen(MSG_LOGIN_SUFFIX) + 3;
+    message = create_new_msg(message_len);
+
+    if (message) {
+        sprintf(message->content, MSG_SYS_PREFIX " %s " MSG_LOGIN_SUFFIX, info->name);
+        D(TAG, "Construct message to all user: %s", message->content);
+        strcpy(message->target, CMD_TO_ALL);
+        strcpy(message->exclude, info->name);
+    }
+
+    return message;
 }
 
-int make_sure_array(void ** ptr, int expected_size)
+PMsg send_msg_to_all(PClientInfo info, size_t size, char * msg) 
 {
-    void * tmp = null;
-    if (!*ptr) {
-        tmp = malloc(expected_size);
-        if (!tmp) {
-            E(TAG, "Unable to allocate memory");
-            return -1;
-        }
-        *ptr = tmp;
+    return NULL;
+}
+
+PMsg send_msg_to_c(PClientInfo info, size_t size, char * msg)
+{
+    return NULL;
+}
+
+PClientInfo * get_client_list(PServerInfo server_info, int * items)
+{
+    pthread_mutex_lock(&server_info->lock);
+    PClientInfo * clients = (PClientInfo *) malloc(sizeof(PClientInfo) * server_info->client_count);
+    if (!clients) {
+        E(TAG, "Unable to allocate memory for client list");
+        * items = 0;
     } else {
-        tmp = realloc(*ptr, expected_size);
-        if (!tmp) {
-            E(TAG, "Unable to reallocate memory");
-            return -1;
+        * items = server_info->client_count;
+
+        PListHead ptr;
+        PClientNode curr;
+        int index = 0;
+
+        list_for_each(ptr, &server_info->clients) {
+            curr = list_entry(ptr, ClientNode, node);
+
+            clients[index ++] = curr->info;
         }
-        *ptr = tmp;
     }
-    return SUCC;
+    pthread_mutex_unlock(&server_info->lock);
+
+    return clients;
+}
+
+void try_to_handle_msg(PServerInfo server_info, PClientInfo info)
+{
+    char *msg = null;
+    size_t msg_size = fetch_msg_from_client(info, &msg);
+
+    int need_to_flush_msg = 0;
+    while (msg_size > 0) {
+        D(TAG, "Got message from %d: %s", info->socket_id, msg);
+        // got a message, try to parse and handle it
+
+        PMsg redirect_msg = null;
+        if (msg == strstr(msg, CMD_LOGIN)) {
+            // user login
+            redirect_msg = user_login(info, msg_size, msg); 
+        } else if (msg == strstr(msg, CMD_TO_ALL)) {
+        } else if (msg == strstr(msg, CMD_TO_C)) {
+        }
+
+        if (redirect_msg) {
+            // need to redirect the msg to the client(s)
+            int size = 0;
+            PClientInfo * clients = get_client_list(server_info, &size);
+
+            int to_all = (SUCC == is_msg_to_all(redirect_msg)) ? 1 : 0;
+            for (int index = 0; index < size; index ++) {
+                PClientInfo info = clients[index];
+                int skip = SUCC == filter_out(redirect_msg, info->name) ? 1 : 0;
+
+                D(TAG, "Check if send to this client(%s): %d, is all: %d", 
+                        info->name, skip, to_all);
+
+                if (skip) continue;
+
+                if (to_all || SUCC == is_target(redirect_msg, info->name)) {
+                    send_msg_to_client(info, redirect_msg->content, redirect_msg->size);
+                    need_to_flush_msg ++;
+                }
+            }
+            
+            release_msg(redirect_msg);
+        }
+
+        if (msg) free(msg);
+        msg = null;
+        msg_size = 0;
+
+        msg_size = fetch_msg_from_client(info, &msg);
+    }
+
+    if (need_to_flush_msg) {
+        // TODO notify the writing thread to flush messages to sockets
+    }
+}
+
+void * get_polling_and_client_list(PServerInfo server_info, int * items)
+{
+    pthread_mutex_lock(&server_info->lock);
+    int size = server_info->client_count * (sizeof(struct pollfd) + sizeof(PClientInfo));
+    void * data = malloc(size);
+    if (!data) {
+        E(TAG, "Allocate memory for polling list and client infos fail");
+        * items = 0;
+    } else {
+        * items = server_info->client_count;
+        memset(data, 0, size);
+
+        int index = 0;
+        PListHead ptr;
+        PClientNode curr;
+
+        struct pollfd * polling = (struct pollfd *) data;
+        PClientInfo * clients = data + server_info->client_count * sizeof(struct pollfd);
+
+        list_for_each(ptr, &server_info->clients) {
+            curr = list_entry(ptr, ClientNode, node);
+
+            D(TAG, "Polling socket from list: %d", curr->info->socket_id);
+
+            struct pollfd * tmp = polling + index;
+            clients[index] = curr->info;
+            tmp->fd = curr->info->socket_id;
+            tmp->events = POLLIN;
+            index ++;
+        }
+    }
+    pthread_mutex_unlock(&server_info->lock);
+    return data;
 }
 
 void * read_sockets(void * param) 
@@ -131,68 +261,28 @@ void * read_sockets(void * param)
     extern int errno;
     int ret;
 
-    // the size of polling_fds should be max_size * (sizeof(struct pollfd) + sizeof (PClientInfo));
-    // the prefix max_size * sizeof(struct pollfd) used to store pollfd list, 
-    // the suffix max_size * sizeof(PClientInfo) used to store PClientInfo
-    struct pollfd * polling_fds = null;
-    nfds_t current_size = 0, allocated_size = 10;
-
-    int mem_unit = sizeof(struct pollfd) + sizeof(PClientInfo);
-
     do {
-        pthread_mutex_lock(&server_info->lock);
-
-        int expected_size = allocated_size;
-        if (allocated_size <= server_info->client_count) {
-            expected_size = max(allocated_size * 2, server_info->client_count + 10);
+        int items = 0;
+        void * data = get_polling_and_client_list(server_info, &items);
+        if (!data) {
+            break;
         }
-
-        if (!polling_fds || expected_size > allocated_size) {
-            // if polling_fds is null or no enought space, then need to allocate or expand the size
-            if (FAIL(make_sure_array(&(void *) polling_fds, expected_size * unit))) {
-                E(TAG, "Unable to allocate or expand memory size for polling");
-                if (!polling_fds) {
-                    continue;
-                }
-            } else {
-                D(TAG, "Allocate or expand memory size for polling success");
-                allocated_size = expected_size;
-                current_size = server_info->client_count;
-            }
-        } else {
-            // no need to expand the memory size
-            current_size = server_info->client_count;
+        struct pollfd * polling_fds = (struct pollfd *) data;
+        PClientInfo * infos = (PClientInfo *) (data + items * sizeof(struct pollfd));
+        
+        DEBUG_BLOCK(
+        for (int index = 0; index < items; index ++) {
+            D(TAG, "socket polling list: %d", polling_fds[index].fd);
+            D(TAG, "socket from infos: %d", infos[index]->socket_id);
         }
+        )
 
-        // clear the content in this list
-        memset(polling_fds, 0, allocated_size * mem_unit);
-
-        // convert the tail info PClientInfo array
-        PClientInfo * infos = (PClientInfo *) ((char *) polling_fds + allocated_size * sizeof(struct pollfd));
-
-        int index = 0;
-        PListHead ptr;
-        PClientNode curr;
-
-        list_for_each(ptr, &server_info->clients) {
-            if (index >= current_size) break;
-
-            curr = list_entry(ptr, ClientNode, node);
-
-            struct pollfd tmp = polling_fds[index];
-            infos[index] = curr->info; 
-
-            tmp.fd = curr->info->socket_id;
-            tmp.events = POLLIN;
-        }
-
-        pthread_mutex_unlock(&server_info->lock);
-
-        ret = poll(polling_fds, current_size, POLL_TIMEOUT);
-        if (-1 == ret) {
+        D(TAG, "Start polling events to read data from socket: %d", items);
+        ret = poll(polling_fds, items, POLL_TIMEOUT);
+        if (FAIL == ret) {
             E(TAG, "Failed to poll events from sockets: %s", strerror(errno));
             continue;
-        } else if (0 == ret) {
+        } else if (SUCC == ret) {
             D(TAG, "Poll on thread(%d) timeout", current_tid);
             continue;
         } else {
@@ -200,20 +290,24 @@ void * read_sockets(void * param)
         }
 
         int has_read_from_socket = 0;
-        for (index = 0; index < current_size; index ++) {
+        for (int index = 0; index < items; index ++) {
             struct pollfd tmp = polling_fds[index];
             PClientInfo info = infos[index];
 
             if (tmp.fd != info->socket_id) {
                 // wrong status, just ignore this item
+                D(TAG, "socket id(%d) in pollfd does not equal to socket id(%d) in client infos,"
+                        " this shouldn't happen", tmp.fd, info->socket_id);
                 continue;
             }
             D(TAG, "Captured some event(%d) on socket(%d)", tmp.revents, info->socket_id);
 
             if (tmp.revents & POLLIN) {
-                if (fetch_from_client(info)) {
+                int fetch_count = fetch_from_client(info);
+                D(TAG, "fetch %d bytes from socket: %d", fetch_count, info->socket_id);
+                if (fetch_count) {
                     // has read sth, check if there is a command in the cache
-                    try_to_handle_msg(info);
+                    try_to_handle_msg(server_info, info);
                 } else {
                     E(TAG, "Captured POLLIN on socket(%d), but read nothing, "
                             "maybe the socket has been closed by the peer", info->socket_id);
@@ -227,16 +321,17 @@ void * read_sockets(void * param)
 
             continue;
 handle_socket_exception:
-            if (FAIL(is_socket_valid(info->socket_id))) {
-                // invalid socket, logout this client and remove it from list
+            if (SUCC != is_client_connected(info)) {
+                // the connection between client and server is invalid
+                // logout this client and remove it from list
             }
         }
+        free(data);
+
+        PAUSE();
     } while (server_info->is_running);
 
     D(TAG, "Exiting the thread: %d", current_tid);
-
-handle_sockets_release_with_fds:
-    if (polling_fds) free(polling_fds);
 
     return NULL;
 }
@@ -249,54 +344,29 @@ void * write_sockets(void *param)
     size_t current_size = 0, allocated_size = 10;
 
     do {
-        pthread_mutex_lock(&server_info->lock);
-
-        size_t expected_size = allocated_size;
-        if (allocated_size <= server_info->client_count) {
-            expected_size = max(allocated_size * 2, server_info->client_count + 10);
+        int size = 0;
+        PClientInfo * clients = get_client_list(server_info, &size);
+        if (!clients) {
+            break;
         }
 
-        if (!clients || expected_size > allocated_size) {
-            // need to allocate or expand the memory size
-            if (FAIL(make_sure_array(&(void *) clients, expected_size * sizeof(PClientInfo)))) {
-                E(TAG, "Fail to allocated expand the memory size");
-                if (!clients) {
-                    continue;
-                }
-            } else {
-                allocated_size = expected_size;
-                current_size = server_info->client_count;
-            }
-        } else {
-            current_size = server_info->client_count;
-        }
+        D(TAG, "Check %d client, if there are some msg to send", size);
 
-        // clear the content
-        memset(clients, 0, allocated_size * sizeof(PClientInfo));
-
-        int index = 0;
-        PListHead ptr;
-        PClientNode curr;
-
-
-        list_for_each(ptr, &server_info->clients) {
-            curr = list_entry(ptr, ClientNode, node);
-
-            clients[index] = curr->info;
-        }
-
-        pthread_mutex_unlock(&server_info->lock);
-
-
-        for (index = 0; index < current_size; index ++) {
+        for (int index = 0; index < size; index ++) {
             PClientInfo info = clients[index];
-            if (FAIL(is_client_connected(info))) {
+            D(TAG, "Check any msg to send: %s", info->name);
+            if (SUCC != is_client_connected(info)) {
+                D(TAG, "Checking, socket (%d) is not connected???", info->socket_id);
                 continue;
             }
 
             size_t flush_size  = flush_messages(info);
-            D(TAG, "Flush %d bytes data to the socket(%d)", flush_size, info->socket_id);
+            if (flush_size > 0) {
+                D(TAG, "Flush %d bytes data to the socket(%d)", flush_size, info->socket_id);
+            }
         }
+        PAUSE();
+        free(clients);
     } while (server_info->is_running);
     return NULL;
 }
@@ -345,13 +415,13 @@ void * handle_listen(void * param)
         if (is_empty) {
             // create new thread to accept message from all clients
             ret = pthread_create(&reading_thread, NULL, read_sockets, server_info);
-            if (FAIL(ret)) {
+            if (SUCC != ret) {
                 E(TAG, "Unable to create new thread to read data from sockets: %d", ret);
                 break;
             }
 
             ret = pthread_create(&writing_thread, NULL, write_sockets, server_info);
-            if (FAIL(ret)) {
+            if (SUCC != ret) {
                 E(TAG, "Unable to create new thread to write data from sockets: %d", ret);
                 break;
             }
@@ -361,14 +431,14 @@ void * handle_listen(void * param)
 
     if (reading_thread != -1) {
         ret = pthread_join(reading_thread, NULL);
-        if (FAIL(ret)) {
+        if (SUCC != ret) {
             E(TAG, "Unable to wait for reading thread to exit: %d", ret);
         }
     }
 
     if (writing_thread != -1) {
         ret = pthread_join(writing_thread, NULL);
-        if (FAIL(ret)) {
+        if (SUCC != ret) {
             E(TAG, "Unable to wait for writing thread to exit: %d", ret);
         }
     }

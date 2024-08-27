@@ -35,19 +35,22 @@ static struct tm* c;
 #define D(t_, ...) LOG_PREFIX("D", t_) && printf(__VA_ARGS__) && printf("\n")
 #define E(t_, ...) LOG_PREFIX("E", t_) && printf(__VA_ARGS__) && printf("\n")
 
+#define DEBUG_BLOCK(x) x
+
 #else
 
 #define I(t_, ...) 
 #define D(t_, ...)
 #define E(t_, ...)
 
+#define DEBUG_BLOCK(x)
+
 #endif // __DEBUG__
 
 #define err_sys(t_, ...) E((t_), __VA_ARGS__); fprintf(stderr, __VA_ARGS__); fprintf(stderr, "\n"); exit(1)
 
 #define SUCC 0
-
-#define FAIL(C) (c) != SUCC
+#define FAIL -1
 
 #define max(x, y) (x) > (y) ? (x) : (y)
 #define min(x, y) (x) < (y) ? (x) : (y)

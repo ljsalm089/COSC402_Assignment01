@@ -42,6 +42,8 @@ typedef ClientInfo * PClientInfo;
  */
 PClientInfo new_client_info(int socket_id, char *client_name, int type);
 
+void update_client_name(PClientInfo info, char *client_name);
+
 /**
  * read data from client and cache it
  * return: how many bytes read from socket, -1 means some error, 0 means nothing
@@ -58,7 +60,7 @@ size_t fetch_msg_from_client(PClientInfo info, char **msg_buff);
  * send a message to client
  * @return: none
  */
-void send_msg_to_client(PClientInfo info, void * msg, size_t size);
+size_t send_msg_to_client(PClientInfo info, void * msg, size_t size);
 
 /**
  * flush all the message in the buffer to the socket
