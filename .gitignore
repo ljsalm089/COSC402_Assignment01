@@ -2,4 +2,6 @@
 !*.h
 IMServer
 IMClient
-
+main
+*.h.gch
+*.o
