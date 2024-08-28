@@ -20,7 +20,7 @@
 #ifdef __DEBUG__
 #define POLL_TIMEOUT 5000
 
-#define PAUSE() sleep(1)
+#define PAUSE() //sleep(1)
 #else
 #define POLL_TIMEOUT 10
 #define PAUSE() 
@@ -100,7 +100,7 @@ void release_server_info(PServerInfo info)
 
 PClientInfo * get_client_list(PServerInfo server_info, int * items)
 {
-    pthread_mutex_lock(&server_info->lock);
+    MUTEX_LOCK(&server_info->lock, "get_client_list");
     PClientInfo * clients = (PClientInfo *) malloc(sizeof(PClientInfo) * server_info->client_count);
     if (!clients) {
         E(TAG, "Unable to allocate memory for client list");
@@ -118,7 +118,7 @@ PClientInfo * get_client_list(PServerInfo server_info, int * items)
             clients[index ++] = curr->info;
         }
     }
-    pthread_mutex_unlock(&server_info->lock);
+    MUTEX_UNLOCK(&server_info->lock, "get_client_list");
 
     return clients;
 }
@@ -132,18 +132,21 @@ int deliver_msg_to_all_clients(PServerInfo server_info, PMsg msg)
     int to_all = (SUCC == is_msg_to_all(msg)) ? 1 : 0;
     for (int index = 0; index < size; index ++) {
         PClientInfo info = clients[index];
+
+        if (FAIL == info->pub) continue;
+
         int skip = SUCC == filter_out(msg, info->name) ? 1 : 0;
+        if (skip) continue;
 
         D(TAG, "Check if send to this client(%s): %d, is all: %d", 
                 info->name, skip, to_all);
-
-        if (skip) continue;
 
         if (to_all || SUCC == is_target(msg, info->name)) {
             send_msg_to_client(info, msg->content, msg->size);
             sent_count ++;
         }
     }
+    if (clients) free(clients);
     return sent_count;
 }
 
@@ -178,7 +181,7 @@ PMsg user_login(PClientInfo info, size_t size, char * msg)
 
 void user_logout(PServerInfo server_info, PClientInfo info)
 {
-    pthread_mutex_lock(&server_info->lock);
+    MUTEX_LOCK(&server_info->lock, "user_logout");
     PListHead ptr;
     PClientNode curr;
 
@@ -187,11 +190,12 @@ void user_logout(PServerInfo server_info, PClientInfo info)
 
         if (curr->info->socket_id == info->socket_id) {
             list_del(&curr->node);
+            server_info->client_count --;
             free(curr);
             break;
         }
     }
-    pthread_mutex_lock(&server_info->lock);
+    MUTEX_UNLOCK(&server_info->lock, "user_logout");
 
     // create logout msg and send to other users
 
@@ -282,7 +286,7 @@ void try_to_handle_msg(PServerInfo server_info, PClientInfo info)
 
 void * get_polling_and_client_list(PServerInfo server_info, int * items)
 {
-    pthread_mutex_lock(&server_info->lock);
+    MUTEX_LOCK(&server_info->lock, "get_polling_and_client_list");
     int size = server_info->client_count * (sizeof(struct pollfd) + sizeof(PClientInfo));
     void * data = malloc(size);
     if (!data) {
@@ -306,12 +310,16 @@ void * get_polling_and_client_list(PServerInfo server_info, int * items)
 
             struct pollfd * tmp = polling + index;
             clients[index] = curr->info;
-            tmp->fd = curr->info->socket_id;
+            if (SUCC == curr->info->pub) {
+                tmp->fd = curr->info->socket_id;
+            } else {
+                tmp->fd = -1;
+            }
             tmp->events = POLLIN;
             index ++;
         }
     }
-    pthread_mutex_unlock(&server_info->lock);
+    MUTEX_UNLOCK(&server_info->lock, "get_polling_and_client_list");
     return data;
 }
 
@@ -356,6 +364,10 @@ void * read_sockets(void * param)
         for (int index = 0; index < items; index ++) {
             struct pollfd tmp = polling_fds[index];
             PClientInfo info = infos[index];
+            if (-1 == tmp.fd) {
+                // just ignore this
+                continue;
+            }
 
             if (tmp.fd != info->socket_id) {
                 // wrong status, just ignore this item
@@ -363,6 +375,12 @@ void * read_sockets(void * param)
                         " this shouldn't happen", tmp.fd, info->socket_id);
                 continue;
             }
+
+            if (0 == tmp.revents) {
+                D(TAG, "Nothing happens on socket(%d)", tmp.fd);
+                continue;
+            }
+
             D(TAG, "Captured some event(%d) on socket(%d)", tmp.revents, info->socket_id);
 
             if (tmp.revents & POLLIN) {
@@ -384,13 +402,9 @@ void * read_sockets(void * param)
 
             continue;
 handle_socket_exception:
-            if (SUCC != is_client_connected(info)) {
-                // the connection between client and server is invalid
-                // logout this client and remove it from list
-                user_logout(server_info, info);
-            } else {
-                D(TAG, "Some error on socket(%d), but the status is still normal????", info->socket_id);
-            }
+            // the connection between client and server is invalid
+            // logout this client and remove it from list
+            info->pub = FAIL;
         }
         free(data);
 
@@ -416,22 +430,27 @@ void * write_sockets(void *param)
             break;
         }
 
-        D(TAG, "Check %d client, if there are some msg to send", size);
+        // D(TAG, "Check %d client, if there are some msg to send", size);
 
         for (int index = 0; index < size; index ++) {
             PClientInfo info = clients[index];
-            D(TAG, "Check any msg to send: %s", info->name);
-            if (SUCC != is_client_connected(info)) {
-                D(TAG, "Checking, socket (%d) is not connected???", info->socket_id);
-                continue;
-            }
+
+            if (FAIL == info->pub) continue;
+
+            // D(TAG, "Check any msg to send: %s", info->name);
 
             size_t flush_size  = flush_messages(info);
             if (flush_size > 0) {
                 D(TAG, "Flush %d bytes data to the socket(%d)", flush_size, info->socket_id);
             }
         }
-        PAUSE();
+
+        for (int index = 0; index < size; index ++) {
+            PClientInfo info = clients[index];
+            if (FAIL == info->pub) {
+                user_logout(server_info, info);
+            }
+        }
         free(clients);
     } while (server_info->is_running);
     return NULL;
@@ -469,16 +488,16 @@ void * handle_listen(void * param)
         }
         node->info = new_client;
 
-        pthread_mutex_lock(&server_info->lock);
+        MUTEX_LOCK(&server_info->lock, "handle_listen");
 
         int is_empty = list_empty(&server_info->clients);
         list_add_tail(&node->node, &server_info->clients);
         server_info-> client_count ++;
         D(TAG, "Add new client info to clients list");
 
-        pthread_mutex_unlock(&server_info->lock);
+        MUTEX_UNLOCK(&server_info->lock, "handle_listen");
 
-        if (is_empty) {
+        if (-1 == reading_thread) {
             // create new thread to accept message from all clients
             ret = pthread_create(&reading_thread, NULL, read_sockets, server_info);
             if (SUCC != ret) {

@@ -30,8 +30,8 @@ typedef struct {
     time_t login_time;
     unsigned short type;
 
-    void * pub;
-    void * priv; 
+    unsigned long pub;
+    unsigned long priv; 
 } ClientInfo;
 
 typedef ClientInfo * PClientInfo;

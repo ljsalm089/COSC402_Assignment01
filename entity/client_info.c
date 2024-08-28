@@ -172,11 +172,11 @@ size_t send_msg_to_client(PClientInfo info, void *msg, size_t size)
 {
     CONVERT(data, info);
 
-    pthread_spin_lock(&data->writing_lock);
+    SPIN_LOCK(&data->writing_lock, "send_msg_to_client");
     size_t ret = write_into_buffer(data->writing_buffer, msg, size);
-    D(TAG, "After write %d bytes data to buffer, current buffer size: %d", 
-            size, buffer_size(data->writing_buffer));
-    pthread_spin_unlock(&data->writing_lock);
+    // D(TAG, "After write %d bytes data to buffer, current buffer size: %d", 
+            // size, buffer_size(data->writing_buffer));
+    SPIN_UNLOCK(&data->writing_lock, "send_msg_to_client");
 
     return ret;
 }
@@ -186,15 +186,15 @@ size_t flush_messages(PClientInfo info)
     size_t ret = 0;
     CONVERT(data, info);
 
-    pthread_spin_lock(&data->writing_lock);
+    SPIN_LOCK(&data->writing_lock, "flush_messages");
 
     size_t b_size = buffer_size(data->writing_buffer);
-    D(TAG, "Current buffer size for writing: %d", b_size);
+    // D(TAG, "Current buffer size for writing: %d", b_size);
     if (b_size > 0) {
         ret = write_from_buffer(info->socket_id, data->writing_buffer, b_size);
     }
 
-    pthread_spin_unlock(&data->writing_lock);
+    SPIN_UNLOCK(&data->writing_lock, "flush_messages");
 
     return ret;
 }

@@ -1,3 +1,4 @@
+CFLAGS=-g
 ALL_HEADERS = ./net_util.h \
 			./entity/client_info.h \
 			./io/common_io.h \

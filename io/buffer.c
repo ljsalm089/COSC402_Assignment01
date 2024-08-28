@@ -54,6 +54,7 @@ PBuffer create_new_buffer()
         E(TAG, "Allocate memory for buffer fail(%d): %s", errno, strerror(errno));
         return null;
     }
+    memset(buff, 0, sizeof(_InnerBuffer));
     INIT_LIST_HEAD(&buff->cache_list);
 
     return &buff->inner;
@@ -66,7 +67,7 @@ int destroy_buffer(PBuffer buffer)
     if (!buff)
         return -1;
 
-    while (list_empty(&buff->cache_list)) {
+    while (!list_empty(&buff->cache_list)) {
         PInnerNode tmp = list_last_entry(&buff->cache_list, _InnerNode, node);
         list_del(&tmp->node);
         recycle_cache(tmp->cache);
@@ -239,6 +240,7 @@ size_t read_from_buffer(PBuffer buffer, void **target, size_t size)
     }
 
     * target = malloc(expected_read_size);
+    memset(*target, 0, expected_read_size);
     D(TAG, "try to read %d bytes from buffer", expected_read_size);
 
     size_t already_read_size = 0;

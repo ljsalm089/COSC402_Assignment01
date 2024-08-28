@@ -20,6 +20,8 @@
 #define __DEBUG__ 1
 #ifdef __DEBUG__
 
+// #define __DEBUG_LOCK__ 1
+
 #include <time.h>
 
 static time_t now;
@@ -29,7 +31,7 @@ static struct tm* c;
                     && printf("%d-%02d-%02d %02d:%02d:%02d  ", c->tm_year + 1900, c->tm_mon + 1, c->tm_mday, \
                     c->tm_hour, c->tm_min, c->tm_sec)
 
-#define LOG_PREFIX(l, t) TIME() && printf("%s %s\t\t", l, t)
+#define LOG_PREFIX(l, t) TIME() && printf("%s %-20s", l, t)
 
 #define I(t_, ...) LOG_PREFIX("I", t_) && LOG("I\t") && printf(__VA_ARGS__) && printf("\n")
 #define D(t_, ...) LOG_PREFIX("D", t_) && printf(__VA_ARGS__) && printf("\n")
@@ -45,6 +47,7 @@ static struct tm* c;
 
 #define DEBUG_BLOCK(x)
 
+
 #endif // __DEBUG__
 
 #define err_sys(t_, ...) E((t_), __VA_ARGS__); fprintf(stderr, __VA_ARGS__); fprintf(stderr, "\n"); exit(1)
@@ -54,5 +57,31 @@ static struct tm* c;
 
 #define max(x, y) (x) > (y) ? (x) : (y)
 #define min(x, y) (x) < (y) ? (x) : (y)
+
+
+// for lock debugging
+#ifdef __DEBUG_LOCK__
+
+#define LOCK "LOCK"
+
+#define SPIN_LOCK(l, msg) D(LOCK, "Before %lu: " #l " " msg, pthread_self()); \
+    pthread_spin_lock((l)); D(LOCK, "After %lu: " #l" " msg, pthread_self()); 
+#define SPIN_UNLOCK(l, msg) D(LOCK, "Before %lu: " #l " " msg, pthread_self()); \
+    pthread_spin_unlock((l)); D(LOCK, "After %lu: " #l " " msg, pthread_self());
+
+#define MUTEX_LOCK(l, msg) D(LOCK, "Before %lu: " #l " " msg, pthread_self()); \
+    pthread_mutex_lock((l)); D(LOCK, "After %lu: " #l " " msg, pthread_self());
+#define MUTEX_UNLOCK(l, msg) D(LOCK, "Before %lu: " #l " " msg, pthread_self()); \
+    pthread_mutex_unlock((l)); D(LOCK, "After %lu: " #l " " msg, pthread_self());
+
+#else
+
+#define SPIN_LOCK(l, msg) pthread_spin_lock((l));
+#define SPIN_UNLOCK(l, msg) pthread_spin_unlock((l));
+
+#define MUTEX_LOCK(l, msg) pthread_mutex_lock((l));
+#define MUTEX_UNLOCK(l, msg) pthread_mutex_unlock((l));
+
+#endif // __DEBUG_LOCK__
 
 #endif // __COMMON_H__

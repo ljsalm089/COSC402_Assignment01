@@ -50,7 +50,7 @@ void make_sure_cache_mm() {
 
 PCache get_new_cache(int expected_size) {
     PCache cache = NULL;
-    pthread_spin_lock(&spin_lock);
+    SPIN_LOCK(&spin_lock, "get_new_cache");
     make_sure_cache_mm();
 
     PSpecifiedSizeCacheList cache_list = NULL;
@@ -95,13 +95,13 @@ PCache get_new_cache(int expected_size) {
     }
 
 get_cache_ret:
-    pthread_spin_unlock(&spin_lock);
+    SPIN_UNLOCK(&spin_lock, "get_new_cache");
     return cache;
 }
 
 int recycle_cache(PCache cache) {
     int ret = 0;
-    pthread_spin_lock(&spin_lock);
+    SPIN_LOCK(&spin_lock, "recycle_cache");
     make_sure_cache_mm();
 
     int allocated_size = cache->allocated_size;
@@ -128,13 +128,13 @@ int recycle_cache(PCache cache) {
     list_add_tail(&cache_node->node, &curr->list);
 
 recycle_cache_ret:
-    pthread_spin_unlock(&spin_lock);
+    SPIN_UNLOCK(&spin_lock, "recycle_cache");
     return ret;
 }
 
 void release_cache_module() {
-    pthread_spin_lock(&spin_lock);
+    // SPIN_LOCK(&spin_lock);
     // release all cache node
-    pthread_spin_unlock(&spin_lock);
+    // SPIN_UNLOCK(&spin_lock);
     pthread_spin_destroy(&spin_lock);
 }
