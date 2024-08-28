@@ -29,7 +29,7 @@ static struct tm* c;
                     && printf("%d-%02d-%02d %02d:%02d:%02d  ", c->tm_year + 1900, c->tm_mon + 1, c->tm_mday, \
                     c->tm_hour, c->tm_min, c->tm_sec)
 
-#define LOG_PREFIX(l, t) TIME() && printf("%s  %s\t", l, t)
+#define LOG_PREFIX(l, t) TIME() && printf("%s %s\t\t", l, t)
 
 #define I(t_, ...) LOG_PREFIX("I", t_) && LOG("I\t") && printf(__VA_ARGS__) && printf("\n")
 #define D(t_, ...) LOG_PREFIX("D", t_) && printf(__VA_ARGS__) && printf("\n")

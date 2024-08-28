@@ -149,7 +149,7 @@ int main(int argc, char **argv)
                     I(TAG, "Abnormal socket status, exiting...");
                     break;
                 } else {
-                    D(TAG, "Read % bytes data from socket: %d", read_size, p_fd->fd);
+                    D(TAG, "Read %d bytes data from socket: %d", read_size, p_fd->fd);
                 }
                 // just write the data from buff to standard output
                 write_size = write(1, buff, read_size);

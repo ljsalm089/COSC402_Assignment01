@@ -105,9 +105,10 @@ int is_socket_valid(int socket_id)
 
     int ret = getsockopt(socket_id, SOL_SOCKET, SO_ERROR, &error, &len);
 
+    D(TAG, "Current status for socket(%d): %d", socket_id, error);
     if (ret == 0 && 0 == error) {
         return SUCC;
     } else {
-        return -1;
+        return FAIL;
     }
 }

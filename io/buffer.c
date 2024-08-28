@@ -279,6 +279,7 @@ size_t write_into_buffer(PBuffer buffer, void *src, size_t size)
             E(TAG, "Allocate _InnerNode failed(%d): %s", errno, strerror(errno));
             return -1;
         }
+        memset(node, 0, sizeof(_InnerNode));
         node->cache = get_new_cache(CACHE_SIZE);
         if (!node->cache) {
             E(TAG, "Get cache failed");
@@ -289,8 +290,10 @@ size_t write_into_buffer(PBuffer buffer, void *src, size_t size)
 
         // add the new node to the temporary list first
         list_add_tail(&node->node, &tmp_list);
+        D(TAG, "Allocate a new node to cache: %p", CACHE_POS(node));
     } else {
         node = list_last_entry(&buff->cache_list, _InnerNode, node);
+        D(TAG, "Reused the old node: %p", CACHE_POS(node));
         last_w_offset = node->w_offset;
     }
 
@@ -298,6 +301,9 @@ size_t write_into_buffer(PBuffer buffer, void *src, size_t size)
     while (already_read_size < size) {
         size_t read_size = min(size - already_read_size, CACHE_SIZE - node->w_offset);
 
+        D(TAG, "Try to write %d bytes", read_size);
+        D(TAG, "from %p", src + already_read_size);
+        D(TAG, "into node: %p, w_offset: %d", CACHE_POS(node) + node->w_offset, node->w_offset);
         memcpy(CACHE_POS(node) + node->w_offset, src + already_read_size, read_size);
         int tmp_read_size = read_size;
         if (tmp_read_size < 0) {

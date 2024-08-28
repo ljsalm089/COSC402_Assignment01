@@ -17,7 +17,6 @@
 
 #define TAG "IMServer"
 
-#define __DEBUG__ 1
 #ifdef __DEBUG__
 #define POLL_TIMEOUT 5000
 
@@ -99,44 +98,6 @@ void release_server_info(PServerInfo info)
     free(info);
 }
 
-PMsg user_login(PClientInfo info, size_t size, char * msg)
-{
-    int cmd_size = strlen(CMD_LOGIN);
-    
-    PMsg message = null;
-    char * enter = strchr(msg, '\n');
-    if (enter) {
-        *enter = '\0';
-    }
-    update_client_name(info, msg + cmd_size);
-
-    D(TAG, "Client: %s login to the system", info->name);
-
-    // notify other clients that info has logined
-    // message: FROM SYSTEM: {name} is online now
-    int message_len = strlen(MSG_SYS_PREFIX) + strlen(info->name) + strlen(MSG_LOGIN_SUFFIX) + 3;
-    message = create_new_msg(message_len);
-
-    if (message) {
-        sprintf(message->content, MSG_SYS_PREFIX " %s " MSG_LOGIN_SUFFIX, info->name);
-        D(TAG, "Construct message to all user: %s", message->content);
-        strcpy(message->target, CMD_TO_ALL);
-        strcpy(message->exclude, info->name);
-    }
-
-    return message;
-}
-
-PMsg send_msg_to_all(PClientInfo info, size_t size, char * msg) 
-{
-    return NULL;
-}
-
-PMsg send_msg_to_c(PClientInfo info, size_t size, char * msg)
-{
-    return NULL;
-}
-
 PClientInfo * get_client_list(PServerInfo server_info, int * items)
 {
     pthread_mutex_lock(&server_info->lock);
@@ -162,6 +123,59 @@ PClientInfo * get_client_list(PServerInfo server_info, int * items)
     return clients;
 }
 
+int deliver_msg_to_all_clients(PServerInfo server_info, PMsg msg) 
+{
+    int sent_count = 0;
+    int size = 0;
+    PClientInfo * clients = get_client_list(server_info, &size);
+
+    int to_all = (SUCC == is_msg_to_all(msg)) ? 1 : 0;
+    for (int index = 0; index < size; index ++) {
+        PClientInfo info = clients[index];
+        int skip = SUCC == filter_out(msg, info->name) ? 1 : 0;
+
+        D(TAG, "Check if send to this client(%s): %d, is all: %d", 
+                info->name, skip, to_all);
+
+        if (skip) continue;
+
+        if (to_all || SUCC == is_target(msg, info->name)) {
+            send_msg_to_client(info, msg->content, msg->size);
+            sent_count ++;
+        }
+    }
+    return sent_count;
+}
+
+PMsg user_login(PClientInfo info, size_t size, char * msg)
+{
+    // LOGIN: name\n
+    int cmd_size = strlen(CMD_LOGIN); 
+    char * enter = strchr(msg, '\n');
+    if (enter) {
+        *enter = '\0';
+    }
+    update_client_name(info, msg + cmd_size);
+    I(TAG, "Client: %s login to the system", info->name);
+
+    // message format: {name} is online now
+    int msg_size = strlen(info->name) + strlen(MSG_LOGIN_SUFFIX) + 2;
+
+    PMsg message = null;
+    PCache cache = get_new_cache(msg_size);
+    if (cache) {
+        sprintf(cache->buff, "%s " MSG_LOGIN_SUFFIX, info->name);
+        
+        message = create_sys_msg_base_on_content(CMD_TO_ALL, cache->buff);
+        if (message) {
+            strcpy(message->exclude, info->name);
+        }
+        recycle_cache(cache);
+    }
+
+    return message;
+}
+
 void user_logout(PServerInfo server_info, PClientInfo info)
 {
     pthread_mutex_lock(&server_info->lock);
@@ -179,8 +193,34 @@ void user_logout(PServerInfo server_info, PClientInfo info)
     }
     pthread_mutex_lock(&server_info->lock);
 
-    // TODO create logout msg and send to other users
+    // create logout msg and send to other users
 
+    // message format: {name} has logged out
+    int msg_size = strlen(info->name) + strlen(MSG_LOGOUT_SUFFIX) + 2;
+    PMsg msg = null;
+    PCache cache = get_new_cache(msg_size);
+
+    int sent_count = 0;
+    if (cache) {
+        sprintf(cache->buff, "%s " MSG_LOGOUT_SUFFIX, info->name);
+
+        msg = create_sys_msg_base_on_content(CMD_TO_ALL, cache->buff);
+        if (msg) {
+            strcpy(msg->exclude, info->name);
+            sent_count = deliver_msg_to_all_clients(server_info, msg);
+            release_msg(msg);
+        }
+        recycle_cache(cache);
+    }
+
+    // close the socket passively
+    close(info->socket_id);
+    // release client info
+    release_client_info(info);
+
+    // TODO check if need to notify writing thread to flush messages
+    if (sent_count) {
+    }
 }
 
 void try_to_handle_msg(PServerInfo server_info, PClientInfo info)
@@ -195,33 +235,36 @@ void try_to_handle_msg(PServerInfo server_info, PClientInfo info)
 
         PMsg redirect_msg = null;
         if (msg == strstr(msg, CMD_LOGIN)) {
-            // user login
+            // LOGIN: name\n
             redirect_msg = user_login(info, msg_size, msg); 
         } else if (msg == strstr(msg, CMD_TO_ALL)) {
+            int cmd_size = strlen(CMD_TO_ALL);
+
+            // TO_ALL: hello world\n
+            redirect_msg = create_p2p_msg_base_on_content(info->name, CMD_TO_ALL, msg + cmd_size + 1);
         } else if (msg == strstr(msg, CMD_TO_C)) {
+            // TO-C-123: hello world
+            char * indicator = strchr(msg, ':');
+            if (!indicator) {
+                D(TAG, "Invalid message from %s: %s", info->name, msg);
+            } else {
+                // TO-C-123: hello world
+                int cmd_size = strlen(CMD_TO_C);
+                int target_name_size = indicator - msg - cmd_size;
+                PCache cache = get_new_cache(target_name_size);
+                if (cache) {
+                    strncpy(cache->buff, msg + cmd_size, target_name_size);
+
+                    redirect_msg = create_p2p_msg_base_on_content(info->name, cache->buff, 
+                            indicator + 2);
+                    recycle_cache(cache);
+                }
+            }
         }
 
         if (redirect_msg) {
             // need to redirect the msg to the client(s)
-            int size = 0;
-            PClientInfo * clients = get_client_list(server_info, &size);
-
-            int to_all = (SUCC == is_msg_to_all(redirect_msg)) ? 1 : 0;
-            for (int index = 0; index < size; index ++) {
-                PClientInfo info = clients[index];
-                int skip = SUCC == filter_out(redirect_msg, info->name) ? 1 : 0;
-
-                D(TAG, "Check if send to this client(%s): %d, is all: %d", 
-                        info->name, skip, to_all);
-
-                if (skip) continue;
-
-                if (to_all || SUCC == is_target(redirect_msg, info->name)) {
-                    send_msg_to_client(info, redirect_msg->content, redirect_msg->size);
-                    need_to_flush_msg ++;
-                }
-            }
-            
+            need_to_flush_msg += deliver_msg_to_all_clients(server_info, redirect_msg);
             release_msg(redirect_msg);
         }
 
@@ -232,8 +275,8 @@ void try_to_handle_msg(PServerInfo server_info, PClientInfo info)
         msg_size = fetch_msg_from_client(info, &msg);
     }
 
+    // TODO notify the writing thread to flush messages to sockets
     if (need_to_flush_msg) {
-        // TODO notify the writing thread to flush messages to sockets
     }
 }
 
@@ -310,7 +353,6 @@ void * read_sockets(void * param)
             D(TAG, "Some events occur in some socket");
         }
 
-        int has_read_from_socket = 0;
         for (int index = 0; index < items; index ++) {
             struct pollfd tmp = polling_fds[index];
             PClientInfo info = infos[index];
@@ -346,6 +388,8 @@ handle_socket_exception:
                 // the connection between client and server is invalid
                 // logout this client and remove it from list
                 user_logout(server_info, info);
+            } else {
+                D(TAG, "Some error on socket(%d), but the status is still normal????", info->socket_id);
             }
         }
         free(data);
