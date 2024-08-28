@@ -17,33 +17,37 @@
 
 #define LOG(...) printf(__VA_ARGS__)
 
-#define __DEBUG__ 1
-#ifdef __DEBUG__
-
-// #define __DEBUG_LOCK__ 1
-
 #include <time.h>
 
 static time_t now;
 static struct tm* c;
 
+// print out the time for each line of log
 #define TIME() time(&now) && (c = localtime(&now)) \
-                    && printf("%d-%02d-%02d %02d:%02d:%02d  ", c->tm_year + 1900, c->tm_mon + 1, c->tm_mday, \
+                    && printf("%02d-%02d %02d:%02d:%02d  ", c->tm_mon + 1, c->tm_mday, \
                     c->tm_hour, c->tm_min, c->tm_sec)
+#define LOG_PREFIX(l, t) TIME() && printf("%s %-15s", l, t)
 
-#define LOG_PREFIX(l, t) TIME() && printf("%s %-20s", l, t)
+// #define __DEBUG__ 1
+#ifdef __DEBUG__
 
-#define I(t_, ...) LOG_PREFIX("I", t_) && LOG("I\t") && printf(__VA_ARGS__) && printf("\n")
+// uncomment the line below to enable deadlock detecting
+// #define __DEBUG_LOCK__ 1
+
+
+// macro to log out to stdout
 #define D(t_, ...) LOG_PREFIX("D", t_) && printf(__VA_ARGS__) && printf("\n")
+#define I(t_, ...) LOG_PREFIX("I", t_) && printf(__VA_ARGS__) && printf("\n")
 #define E(t_, ...) LOG_PREFIX("E", t_) && printf(__VA_ARGS__) && printf("\n")
 
 #define DEBUG_BLOCK(x) x
 
-#else
+#else // __DEBUG__
 
-#define I(t_, ...) 
+#define I(t_, ...) LOG_PREFIX("I", t_) && printf(__VA_ARGS__) && printf("\n")
+#define E(t_, ...) LOG_PREFIX("E", t_) && printf(__VA_ARGS__) && printf("\n")
 #define D(t_, ...)
-#define E(t_, ...)
+
 
 #define DEBUG_BLOCK(x)
 
@@ -59,7 +63,7 @@ static struct tm* c;
 #define min(x, y) (x) < (y) ? (x) : (y)
 
 
-// for lock debugging
+// use log to detect deadlock
 #ifdef __DEBUG_LOCK__
 
 #define LOCK "LOCK"
@@ -74,7 +78,7 @@ static struct tm* c;
 #define MUTEX_UNLOCK(l, msg) D(LOCK, "Before %lu: " #l " " msg, pthread_self()); \
     pthread_mutex_unlock((l)); D(LOCK, "After %lu: " #l " " msg, pthread_self());
 
-#else
+#else // __DEBUG_LOCK__
 
 #define SPIN_LOCK(l, msg) pthread_spin_lock((l));
 #define SPIN_UNLOCK(l, msg) pthread_spin_unlock((l));

@@ -108,8 +108,8 @@ int main(int argc, char **argv)
 
             if (0 == p_fd->fd && (p_fd->revents & POLLIN)) {
                 // read data from the standard input and handle it
-                read_size = read(p_fd->fd, buff + cmd_len, CACHE_SIZE - cmd_len);
-                strncpy(buff, CMD_TO_ALL, cmd_len);
+                read_size = read(p_fd->fd, buff + cmd_len + 1, CACHE_SIZE - cmd_len - 1);
+                strncpy(buff, CMD_TO_ALL " ", cmd_len + 1);
                 D(TAG, "Read %d bytes data from stdin: %s", read_size, buff);
                 write_size = write(s_socket, buff, strlen(buff));
                 if (-1 == write_size) {
