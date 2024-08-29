@@ -144,6 +144,7 @@ size_t check_command_suffix(void * buff, int size, void * arg)
     if (!target) {
         return -1;
     } else if (target - (char *) buff < size) {
+        D(TAG, "Target char is (%p) %c, arg is (%p) %c", target, *target, buff, *suffix);
         return target - (char *) buff;
     }
     return -1;
@@ -156,7 +157,8 @@ size_t fetch_msg_from_client(PClientInfo info, char **msg_buff)
     char suffix = '\n';
     size_t cmd_suffix_index = find_in_buffer(data->reading_buffer, 
             data->last_check_cmd_index, check_command_suffix, &suffix);
-    D(TAG, "fetch_msg_from_client, cmd_suffix_index: %d", cmd_suffix_index);
+    D(TAG, "fetch_msg_from_client, last_check_cmd_index: %d, cmd_suffix_index: %d", 
+            data->last_check_cmd_index, cmd_suffix_index);
     if (cmd_suffix_index < 0) {
         data->last_check_cmd_index = buffer_size(data->reading_buffer);
         return -1;

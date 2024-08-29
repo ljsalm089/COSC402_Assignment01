@@ -395,7 +395,7 @@ size_t find_in_buffer(PBuffer buffer, size_t start_pos, size_t (*index)(void *, 
     list_for_each(ptr, &buff->cache_list) {
         cur = list_entry(ptr, _InnerNode, node);
 
-        void * start_ptr = CACHE_POS(cur);
+        void * start_ptr = CACHE_POS(cur) + cur->r_offset;
         if (node_first_pos >= start_pos) {
             // first position of the node is already bigger than start_pos, 
             // need to find char from the node start position in this node
