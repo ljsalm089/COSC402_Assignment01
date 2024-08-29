@@ -1,6 +1,7 @@
 # include <time.h>
 # include <unistd.h>
 # include <sys/socket.h>
+# include <sys/time.h>
 # include <netinet/in.h>
 # include <arpa/inet.h>
 # include <sys/param.h>
@@ -22,7 +23,7 @@
 
 #define PAUSE() //sleep(1)
 #else
-#define POLL_TIMEOUT 10
+#define POLL_TIMEOUT 1
 #define PAUSE() 
 #endif
 
@@ -50,6 +51,11 @@ typedef struct
 
     // save the server info, contains the socket
     PClientInfo info;
+
+    // if there are some messages need to flush to socket
+    int sign_to_flush_msg;
+    // condition to wait for message flushing
+    pthread_cond_t con_to_flush;
  } ServerInfo;
 typedef ServerInfo * PServerInfo;
 
@@ -75,9 +81,18 @@ PServerInfo init_server_info(int socket_id)
         E(TAG, "Unable to initialise the spin lock to protect the clients list(%d)", ret);
         goto error_with_server_info;
     }
+    ret = pthread_cond_init(&server_info->con_to_flush, NULL);
+    if (SUCC != ret) {
+        E(TAG, "Unable to initialise the condition shared between read and write threads: %d", ret);
+        goto error_with_mutex_error;
+    }
+    server_info->sign_to_flush_msg = 0;
     server_info->info = client_info;
     server_info->is_running = 1;
     return server_info;
+
+error_with_mutex_error:
+    pthread_mutex_destroy(&server_info->lock);
 
 error_with_server_info:
     free(server_info);
@@ -222,8 +237,11 @@ void user_logout(PServerInfo server_info, PClientInfo info)
     // release client info
     release_client_info(info);
 
-    // TODO check if need to notify writing thread to flush messages
+    // check if need to notify writing thread to flush messages
     if (sent_count) {
+        MUTEX_LOCK(&server_info->lock, "user_logout_1");
+        server_info->sign_to_flush_msg ++;
+        MUTEX_UNLOCK(&server_info->lock, "user_logout_1");
     }
 }
 
@@ -279,8 +297,12 @@ void try_to_handle_msg(PServerInfo server_info, PClientInfo info)
         msg_size = fetch_msg_from_client(info, &msg);
     }
 
-    // TODO notify the writing thread to flush messages to sockets
+    // notify the writing thread to flush messages to sockets
     if (need_to_flush_msg) {
+        MUTEX_LOCK(&server_info->lock, "try_to_handle_msg");
+        server_info->sign_to_flush_msg ++;
+        pthread_cond_signal(&server_info->con_to_flush);
+        MUTEX_UNLOCK(&server_info->lock, "try_to_handle_msg")
     }
 }
 
@@ -422,6 +444,7 @@ void * write_sockets(void *param)
     
     PClientInfo * clients = null;
     size_t current_size = 0, allocated_size = 10;
+    struct timeval curr;
 
     do {
         int size = 0;
@@ -452,6 +475,19 @@ void * write_sockets(void *param)
             }
         }
         free(clients);
+
+        MUTEX_LOCK(&server_info->lock, "write_sockets");
+        if (!server_info->sign_to_flush_msg) {
+            // no messages need to flush, wait for a while
+            gettimeofday(&curr, NULL);
+            struct timespec wait_time = {
+                .tv_sec = curr.tv_sec,
+                .tv_nsec = (curr.tv_usec + 100 * 1000) * 1000 // + 100 ms
+            };
+            pthread_cond_timedwait(&server_info->con_to_flush, &server_info->lock, &wait_time);
+            server_info->sign_to_flush_msg = 0;
+        }
+        MUTEX_UNLOCK(&server_info->lock, "write_sockets");
     } while (server_info->is_running);
     return NULL;
 }
