@@ -17,7 +17,7 @@
 #define TAG "IMClient"
 
 #define CACHE_SIZE 1024
-
+#define TIPS "Please input your message and press 'enter' to send:\n"
 int main(int argc, char **argv)
 {
     if (argc < 4) {
@@ -94,7 +94,9 @@ int main(int argc, char **argv)
         goto main_register_error;
     }
 
-    printf("You are online now!\nPlease input your message and press 'enter' to send:\n");
+    printf("You are online now!\n");
+    printf("Add prefix 'TO-C-{user_name}: ' to the message to only send message to user_name.\n");
+    printf(TIPS);
 
     while (is_online) {
         ret = poll(p_poll_ids, poll_size, -1);
@@ -140,7 +142,7 @@ int main(int argc, char **argv)
                     D(TAG, "Write %d bytes to socket", write_size);
                 }
 
-                printf("Please input your message and press 'enter' to send:\n");
+                printf("\n" TIPS);
             } else if (s_socket == p_fd->fd && (p_fd->revents & POLLIN)) {
                 // read data from socket and handle it
                 read_size = read(p_fd->fd, buff, CACHE_SIZE);
