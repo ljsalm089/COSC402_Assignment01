@@ -535,7 +535,7 @@ int main(int argc, char** argv)
 {
     I(TAG, "Starting IM server!");
     if (argc < 3) {
-        err_sys(TAG, "usage: %s {server address} {aserver port}");
+        err_sys(TAG, "usage: %s {server address} {aserver port}", argv[0]);
     }
 
     PIP server_addr;

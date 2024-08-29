@@ -21,7 +21,7 @@
 int main(int argc, char **argv)
 {
     if (argc < 4) {
-        err_sys(TAG, "usage: %s {server address} {aserver port} {client name}");
+        err_sys(TAG, "usage: %s {server address} {aserver port} {client name}", argv[0]);
     }
     int sever_port = atoi(argv[2]);
     D(TAG, "Server ip address is %s", argv[1]);
