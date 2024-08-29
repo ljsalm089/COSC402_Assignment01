@@ -25,12 +25,9 @@ client: IMClient.c $(ALL_HEADERS) $(objects)
 	$(CC) -c $(ALL_HEADERS) $(CFLAGS) IMClient.c
 	$(CC) $(objects) $(CFLAGS) IMClient.o -o IMClient
 
-main:
-	$(CC) $(CFLAGS) main.c common.h -o main
-
-all: server main client
+all: server client
 
 clean:
 	find . -name '*.o' | xargs rm
 	find . -name '*.h.gch' | xargs rm
-	rm -f main IMServer IMClient
+	rm -f IMServer IMClient
