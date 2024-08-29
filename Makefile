@@ -1,4 +1,5 @@
-CFLAGS=-g
+CC=/usr/bin/gcc
+CFLAGS=-g -lpthread
 ALL_HEADERS = ./net_util.h \
 			./entity/client_info.h \
 			./io/common_io.h \
@@ -14,15 +15,15 @@ objects = ./entity/client_info.o \
 			./entity/message.o
 
 $(objects): %.o: %.c $(ALL_HEADERS)
-	$(CC) -c $(CFLAGS) $< -o $@
+	$(CC) -c $< $(CFLAGS) -o $@
 
 server: IMServer.c $(ALL_HEADERS) $(objects)
-	$(CC) -c $(CFLAGS) $(ALL_HEADERS) IMServer.c
-	$(CC) $(objects) IMServer.o -o IMServer
+	$(CC) -c $(ALL_HEADERS) IMServer.c $(CFLAGS)
+	$(CC) $(objects) $(CFLAGS) IMServer.o -o IMServer
 
 client: IMClient.c $(ALL_HEADERS) $(objects)
-	$(CC) -c $(CFLAGS) $(ALL_HEADERS) IMClient.c
-	$(CC) $(objects) IMClient.o -o IMClient
+	$(CC) -c $(ALL_HEADERS) $(CFLAGS) IMClient.c
+	$(CC) $(objects) $(CFLAGS) IMClient.o -o IMClient
 
 main:
 	$(CC) $(CFLAGS) main.c common.h -o main
