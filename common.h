@@ -31,7 +31,7 @@ static struct tm* c;
 // #define __DEBUG__ 1
 #ifdef __DEBUG__
 
-// uncomment the line below to enable deadlock detecting
+// uncomment the line below to enable log to detect deadlock
 // #define __DEBUG_LOCK__ 1
 
 

@@ -23,7 +23,7 @@
 
 #define PAUSE() //sleep(1)
 #else
-#define POLL_TIMEOUT 1
+#define POLL_TIMEOUT 50
 #define PAUSE() 
 #endif
 
@@ -113,6 +113,9 @@ void release_server_info(PServerInfo info)
     free(info);
 }
 
+/**
+ * get all the online clients 
+ */
 PClientInfo * get_client_list(PServerInfo server_info, int * items)
 {
     MUTEX_LOCK(&server_info->lock, "get_client_list");
@@ -138,6 +141,9 @@ PClientInfo * get_client_list(PServerInfo server_info, int * items)
     return clients;
 }
 
+/**
+ * delivers a message to correspoding clients
+ */
 int deliver_msg_to_all_clients(PServerInfo server_info, PMsg msg) 
 {
     int sent_count = 0;
@@ -165,6 +171,10 @@ int deliver_msg_to_all_clients(PServerInfo server_info, PMsg msg)
     return sent_count;
 }
 
+/**
+ * user login, just stores the name from client 
+ * and then create a message to notify other online clients
+ */
 PMsg user_login(PClientInfo info, size_t size, char * msg)
 {
     // LOGIN: name\n
@@ -194,6 +204,11 @@ PMsg user_login(PClientInfo info, size_t size, char * msg)
     return message;
 }
 
+/**
+ * log out specified client
+ * 1. remove the client info from client lists
+ * 2. notify other than sb has logged out
+ */
 void user_logout(PServerInfo server_info, PClientInfo info)
 {
     MUTEX_LOCK(&server_info->lock, "user_logout");
@@ -204,6 +219,7 @@ void user_logout(PServerInfo server_info, PClientInfo info)
         curr = list_entry(ptr, ClientNode, node);
 
         if (curr->info->socket_id == info->socket_id) {
+            // remove the client info from list
             list_del(&curr->node);
             server_info->client_count --;
             free(curr);
@@ -245,6 +261,11 @@ void user_logout(PServerInfo server_info, PClientInfo info)
     }
 }
 
+/**
+ * detects if there are messages exist in the buffer, 
+ * if so, parse and redirect them.
+ * For now, only supports 3 kinds of messages: LOGIN, TO_ALL, and TO-C
+ */
 void try_to_handle_msg(PServerInfo server_info, PClientInfo info)
 {
     char *msg = null;
@@ -306,6 +327,9 @@ void try_to_handle_msg(PServerInfo server_info, PClientInfo info)
     }
 }
 
+/**
+ * allocate a chuck of memory to store the polling structures and pointers to client infos which need to be polled
+ */
 void * get_polling_and_client_list(PServerInfo server_info, int * items)
 {
     MUTEX_LOCK(&server_info->lock, "get_polling_and_client_list");
@@ -345,6 +369,12 @@ void * get_polling_and_client_list(PServerInfo server_info, int * items)
     return data;
 }
 
+/**
+ * the reading thread which handles three things:
+ * 1. read data from socket and store in the client's reading buffer
+ * 2. parse the data in the buffer, if there are some message, redirect them
+ * 3. notify the writing thread to flush the message in client's writing buffer
+ */
 void * read_sockets(void * param) 
 {
     PServerInfo server_info = (PServerInfo) param;
@@ -425,11 +455,12 @@ void * read_sockets(void * param)
             continue;
 handle_socket_exception:
             // the connection between client and server is invalid
-            // logout this client and remove it from list
+            // update this client to be abnormal, which makes writing thread log it out
             info->pub = FAIL;
         }
         free(data);
 
+        // for debugging, just slow down the loop, only works while the macro __DEBUG__ is enable
         PAUSE();
     } while (server_info->is_running);
 
@@ -438,6 +469,11 @@ handle_socket_exception:
     return NULL;
 }
 
+/**
+ * the writing thread which do 2 things:
+ * 1. flushs message in client's writing buffer to the corresponding socket
+ * 2. detects if there are some client's being marked as abnormal, log it out
+ */
 void * write_sockets(void *param)
 {
     PServerInfo server_info = (PServerInfo) param;
@@ -492,6 +528,10 @@ void * write_sockets(void *param)
     return NULL;
 }
 
+/**
+ * the listening thread, only do one thing:
+ * detects newly connected socket, puts it in the client list
+ */
 void * handle_listen(void * param) 
 {
     PServerInfo server_info = (PServerInfo) param;
@@ -551,6 +591,7 @@ void * handle_listen(void * param)
     server_info->is_running = 0;
 
     if (reading_thread != -1) {
+        // wait for the reading thread
         ret = pthread_join(reading_thread, NULL);
         if (SUCC != ret) {
             E(TAG, "Unable to wait for reading thread to exit: %d", ret);
@@ -558,6 +599,7 @@ void * handle_listen(void * param)
     }
 
     if (writing_thread != -1) {
+        // wait for the writing thread
         ret = pthread_join(writing_thread, NULL);
         if (SUCC != ret) {
             E(TAG, "Unable to wait for writing thread to exit: %d", ret);
