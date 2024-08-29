@@ -94,6 +94,8 @@ int main(int argc, char **argv)
         goto main_register_error;
     }
 
+    printf("You are online now!\nPlease input your message and press 'enter' to send:\n");
+
     while (is_online) {
         ret = poll(p_poll_ids, poll_size, -1);
         if (-1 == ret) {
@@ -108,16 +110,37 @@ int main(int argc, char **argv)
 
             if (0 == p_fd->fd && (p_fd->revents & POLLIN)) {
                 // read data from the standard input and handle it
-                read_size = read(p_fd->fd, buff + cmd_len + 1, CACHE_SIZE - cmd_len - 1);
-                strncpy(buff, CMD_TO_ALL " ", cmd_len + 1);
-                D(TAG, "Read %d bytes data from stdin: %s", read_size, buff);
-                write_size = write(s_socket, buff, strlen(buff));
+                char * start_read_pos = buff + cmd_len + 1;
+                read_size = read(p_fd->fd, start_read_pos, CACHE_SIZE - cmd_len - 1);
+
+                char * write_pos = buff;
+                char * indicator_pos = strstr(start_read_pos, MSG_PREFIX_INDICATOR " ");
+                if (start_read_pos == strstr(start_read_pos, CMD_TO_C) 
+                        && NULL != indicator_pos) {
+                    // contains to c message prefix TO-C- and indicator :
+                    if (indicator_pos - start_read_pos <
+                            strlen(CMD_TO_C) + CLIENT_NAME_MAXIMUM_SIZE) {
+                        // valid user name, just send the reading part to socket
+                        write_pos = start_read_pos;
+                    }
+                }
+
+                if (write_pos == buff) {
+                    // need to add TO_ALL: prefix to the buffer
+                    strncpy(buff, CMD_TO_ALL " ", cmd_len + 1);
+                    read_size += cmd_len + 1;
+                }
+                D(TAG, "Read %d bytes data from stdin: %s", read_size, write_pos);
+
+                write_size = write(s_socket, write_pos, read_size);
                 if (-1 == write_size) {
                     E(TAG, "Fail to write data to socket: %s", strerror(errno));
                     is_online = 0;
                 } else {
                     D(TAG, "Write %d bytes to socket", write_size);
                 }
+
+                printf("Please input your message and press 'enter' to send:\n");
             } else if (s_socket == p_fd->fd && (p_fd->revents & POLLIN)) {
                 // read data from socket and handle it
                 read_size = read(p_fd->fd, buff, CACHE_SIZE);
@@ -127,7 +150,7 @@ int main(int argc, char **argv)
                     continue;
                 } else if (0 == read_size) {
                     is_online = 0;
-                    I(TAG, "Abnormal socket status, exiting...");
+                    I(TAG, "The server is down, exiting...");
                     break;
                 } else {
                     D(TAG, "Read %d bytes data from socket: %d", read_size, p_fd->fd);
@@ -138,7 +161,8 @@ int main(int argc, char **argv)
                 // POLLERR | POLLHUP
                 D(TAG, "Current event: %d, error event: %d, %d", p_fd->revents, POLLERR, POLLHUP);
                 is_online = 0;
-                I(TAG, "Some error in the socket, just exit");
+                I(TAG, "Some error in the connection, exiting....");
+                break;
             }
         }
     }
