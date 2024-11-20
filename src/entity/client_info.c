@@ -3,12 +3,12 @@
 # include <sys/ioctl.h>
 # include <pthread.h>
 
-# include "../common.h"
-# include "../collections/list.h"
-# include "../net_util.h"
-# include "../io/buffer.h"
+# include "common.h"
+# include "collections/list.h"
+# include "net_util.h"
+# include "io/buffer.h"
 
-# include "client_info.h"
+# include "entity/client_info.h"
 
 #define TAG "ClientInfo"
 

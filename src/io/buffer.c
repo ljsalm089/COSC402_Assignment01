@@ -4,11 +4,11 @@
 # include <unistd.h>
 # include <string.h>
 
-# include "../common.h"
-# include "../collections/list.h"
-# include "common_io.h"
+# include "common.h"
+# include "collections/list.h"
+# include "io/common_io.h"
 
-# include "buffer.h"
+# include "io/buffer.h"
 
 # define TAG "Buffer"
 

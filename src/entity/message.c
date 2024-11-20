@@ -1,8 +1,8 @@
 # include <stdlib.h>
 # include <string.h>
 
-# include "../common.h"
-# include "message.h"
+# include "common.h"
+# include "entity/message.h"
 
 #define TAG "message"
 

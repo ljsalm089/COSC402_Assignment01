@@ -1,10 +1,10 @@
 #include <stdlib.h>
 #include <string.h>
 #include <pthread.h>
-#include "common_io.h"
 
-#include "../collections/list.h"
-#include "../common.h"
+#include "io/common_io.h"
+#include "collections/list.h"
+#include "common.h"
 
 #define TAG "cache"
 

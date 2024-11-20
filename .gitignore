@@ -5,3 +5,4 @@ IMClient
 main
 *.h.gch
 *.o
+build

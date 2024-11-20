@@ -28,7 +28,7 @@ static struct tm* c;
                     c->tm_hour, c->tm_min, c->tm_sec)
 #define LOG_PREFIX(l, t) TIME() && printf("%s %-15s", l, t)
 
-// #define __DEBUG__ 1
+#define __DEBUG__ 1
 #ifdef __DEBUG__
 
 // uncomment the line below to enable log to detect deadlock
